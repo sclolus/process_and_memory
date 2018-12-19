@@ -5,23 +5,41 @@ obj-m += $(src-m:.c=.o)
 module-obj = $(obj-m:.o=.ko)
 KERNELRELEASE=$(shell uname -r)
 KDIR=/lib/modules/$(shell uname -r)/build
-EXTRAFLAGS= -Wall  -Werror -v -g -DDEBUG
+EXTRAFLAGS= -Wall -Wextra -Wextra -Werror -v -g -DDEBUG
 FLAGS= $(EXTRAFLAGS)
 ccflags-y= $(EXTRAFLAGS)
+TEST_DIR= "testing"
+TEST_BIN= "test_bin"
+CP_BACKUP_FLAG=simple
+CC= gcc
 
-all:
-	make -C $(KDIR) M=$(PWD) modules
+all: install
+	make -C $(KDIR) -j4 M=$(PWD)
+	cp -v --backup=$(CP_BACKUP_FLAG) $(KDIR)/arch/x86_64/boot/bzImage /boot/vmlinuz-$(KERNELRELEASE)
+	cp -v --backup=$(CP_BACKUP_FLAG) $(KDIR)/System.map /boot/System.map-$(KERNELRELEASE)
+	# reboot
 
-modules_install: all
-	make -C $(KDIR) M=$(PWD) modules_install
-	cp $(module-obj) /lib/modules/$(shell uname -r)/extra
-	sudo depmod -a
+install: all
+	mkdir -pv $(KDIR)/$(TEST_DIR)
+	cp -v sys_Makefile $(KDIR)/$(TEST_DIR)/Makefile
+	cp -v --backup=$(CP_BACKUP_FLAG) get_pid_info.h $(KDIR)/include/linux/get_pid_info.h
+	cp -v --backup=$(CP_BACKUP_FLAG) sys_get_pid_info.c $(KDIR)/$(TEST_DIR)/sys_get_pid_info.c
+	# cp -v --backup=$(CP_BACKUP_FLAG) unistd.h $(KDIR)/include/uapi/asm-generic/unistd.h
+	# cp -v --backup=$(CP_BACKUP_FLAG) syscalls.h $(KDIR)/include/linux/syscalls.h
+	# cp -v --backup=$(CP_BACKUP_FLAG) sys_ni.c $(KDIR)/kernel/sys_ni.c
+	# cp -v --backup=$(CP_BACKUP_FLAG) syscall_64.tbl $(KDIR)/arch/x86/entry/syscalls/syscall_64.tbl
 
 clean:
-	make -C $(KDIR) M=$(PWD) clean
+#	make -C $(KDIR) M=$(PWD) clean
+	rm -f $(obj-test)
 
-test: $(obj-test)
-	gcc $^ -o test
+fclean:
+	rm -f $(TEST_BIN)
+
+$(TEST_BIN): $(obj-test)
+	$(CC) $^ $(FLAGS) -o $@
 
 %.o: %.c
-	gcc $< $(FLAGS) -c
+	$(CC) $< $(FLAGS) -c
+test: $(TEST_BIN)
+	-./$(TEST_BIN)
