@@ -9,14 +9,14 @@
 #define __NR_get_pid_info 335
 
 struct pid_info {
-	pid_t	pid;
-	long	state;
-	void	*stack;
-	uint64_t	age; //Not sure about this
-	pid_t	*child_array; //where is max child ?
-	pid_t	parent_pid;
-	char	root_path[PATH_MAX];
-	char	cwd[PATH_MAX];
+	pid_t	    pid;
+	long	    state;
+	void	    *stack;
+	uint64_t    age; //Not sure about this
+	pid_t	    *child_array; //where is max child ?
+	pid_t	    parent_pid;
+	char	    root_path[PATH_MAX];
+	char	    cwd[PATH_MAX];
 };
 
 static void print_pid_info(struct pid_info *info)
@@ -44,6 +44,5 @@ int main(void)
 		return EXIT_FAILURE;
 	}
 	print_pid_info(&info);
-
 	return 0;
 }
