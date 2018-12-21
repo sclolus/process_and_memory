@@ -6,6 +6,11 @@
 #include <linux/dcache.h>
 #include <linux/slab.h>
 #include <linux/fs_struct.h>
+#include <linux/fdtable.h> // remove this latter
+#include <linux/path.h> // remove this latter
+#include <linux/file.h>
+#include <linux/fs.h>
+#include <linux/dcache.h>
 
 # define LOG "get_pid_info: "
 
@@ -22,18 +27,58 @@ static int32_t  get_user_path_from_struct_path(struct path *path, char *buffer, 
 
 }
 
+
+static void	printk_file_path(struct file *file, char *prefix)
+{
+	static char buffer[PAGE_SIZE];
+	char	    *ptr;
+
+
+	ptr = dentry_path_raw(file->f_path.dentry, buffer, sizeof(buffer));
+	if (IS_ERR(ptr)) {
+		printk(KERN_INFO LOG "Was unable to print some file's path\n");
+		return ;
+	}
+
+	printk(KERN_INFO LOG "%s%s", prefix, ptr);
+}
+
+static int32_t	test_function(void *data)
+{
+	struct fdtable	    *fdtable = &current->files->fdtab;
+	struct file	    *tmp_file;
+	uint64_t	    i = 0;
+
+	while (fdtable->fd[i] != NULL)
+	{
+		tmp_file = get_file(fdtable->fd[i]);
+		printk_file_path(tmp_file, "Opened fd: ");
+		fput_atomic(tmp_file);
+		i++;
+	}
+	return (0);
+}
+
 SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 {
 	struct pid_info	    *info;
 	struct task_struct  *task;
-	int32_t		    ret;
+	int64_t		    ret;
 
 	printk(KERN_INFO LOG "get_pid_info() was called by pid: %d\n", current->pid);
 
-	if (NULL == (info = kmalloc(sizeof(struct pid_info), GFP_KERNEL)))
-		return (-ENOMEM);
-	if (NULL == (task = find_task_by_pid_ns(pid, current->nsproxy->pid_ns_for_children)))
-		return (-ESRCH);
+	if (NULL == (info = kmalloc(sizeof(struct pid_info), GFP_KERNEL))) {
+		ret = -ENOMEM;
+		goto err;
+	}
+
+	rcu_read_lock();
+	if (NULL == (task = find_task_by_pid_ns(pid, task_active_pid_ns(current)))) {
+		ret = -ESRCH;
+		goto err;
+	}
+	rcu_read_unlock();
+	task_lock(task);
 
 	info->pid = task->pid;
 	info->state = task->state;
@@ -45,11 +90,22 @@ SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 
 	if (ret != 0) {
 		kfree(info);
-		return (-EPERM);
+		ret = -EPERM;
+		goto err_tlock_held;
 	}
 
-	if (0 != copy_to_user(to, info, sizeof(struct pid_info)))
-		return (-EPERM);
+	if (0 != copy_to_user(to, info, sizeof(struct pid_info))) {
+		kfree(info);
+		ret = -EPERM;
+		goto err_tlock_held;
+	}
+
 	kfree(info);
-	return (0);
+	test_function(NULL);
+	task_unlock(task);
+	return 0;
+err_tlock_held:
+	task_unlock(task);
+err:
+	return ret;
 }
