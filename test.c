@@ -55,7 +55,7 @@ static void get_process_name_by_pid(pid_t pid, char * const buf, const uint64_t 
 	int	    fd;
 	ssize_t	    ret;
 
-	snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%u/cmdline", pid);
+	snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%u/comm", pid);
 	if (-1 == (fd = open(cmdline_path, O_RDONLY))) {
 		printf("Failed to open %s\n", cmdline_path);
 		exit(EXIT_FAILURE);
@@ -136,7 +136,6 @@ static int32_t	wrapper_get_pid_info(struct pid_info *info, pid_t pid) {
 
 		return (0);
 	} while (info->syscall_status != SUCCESS);
-	/// ???
 	return (0);
 }
 
@@ -163,13 +162,14 @@ static void rec_print_pid_info(pid_t pid, uint64_t depth)
 }
 
 
+#define FORK_NUMBER 128
 
 int main(void)
 {
 	/* struct pid_info	info; */
 	uint32_t    i = 0;
 
-	while (i < 5) {
+	while (i < FORK_NUMBER) {
 		if (0 == fork()) {
 			assert(sleep(2) == 0);
 			exit(0);

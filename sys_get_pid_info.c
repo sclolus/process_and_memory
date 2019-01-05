@@ -110,6 +110,7 @@ SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 		goto err_tlock_held;
 	}
 
+	info->syscall_status = SUCCESS;
 	if (required_child_array_size > info->child_array_size) {
 		info->child_array_size = required_child_array_size;
 		info->syscall_status = ERR_CHILD_ARRAY_TOO_SMALL;
@@ -120,18 +121,14 @@ SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 		uint64_t	    i = 0;
 		pid_t		    vpid;
 
-		printk(KERN_INFO LOG "Entering list_for_each_entry\n");
 		list_for_each_entry(pos, &task->children, sibling) {
 			vpid = task_tgid_vnr(pos);
-			printk(KERN_INFO LOG "assigning pid entry for childen : %llu -> %u, pos->tgid: %u\n", i, vpid, pos->tgid);
-			copy_to_user(&info->child_array[i], &vpid, sizeof(pid_t)); // check return value
+			copy_to_user(&info->child_array[i], &vpid, sizeof(pid_t)); // check return value and maybe make it a single call
 			i++;
 		}
-		printk(KERN_INFO LOG "Exiting list_for_each_entry\n");
 		info->child_array_size = required_child_array_size;
 	}
 
-	info->syscall_status = SUCCESS;
 	if (0 != copy_to_user(to, info, sizeof(struct pid_info))) {
 		kfree(info);
 		ret = -EPERM;
