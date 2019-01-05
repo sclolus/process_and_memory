@@ -102,6 +102,9 @@ SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 	info->pid = task_tgid_vnr(task);
 	info->state = task->state;
 	info->stack = task->stack;
+
+	printk(KERN_INFO LOG "task->stack ptr: %px, current sp: %px\n", info->stack, &info);
+
 	info->age = ktime_get_ns() - task->start_time;
 	printk(KERN_INFO LOG "age in seconds = %lu\n", info->age / NSEC_PER_SEC);
 	printk(KERN_INFO LOG "remaining age in ns = %lu\n", info->age % NSEC_PER_SEC);

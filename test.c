@@ -185,6 +185,7 @@ int main(void)
 	/* 	exit(EXIT_FAILURE); */
 	/* print_pid_info(&info); */
 	/* rec_print_pid_info(1, 0); */
+	printf("User space stack addr: %p\n", &i);
 	rec_print_pid_info(getpid(), 0);
 	printf("-----KTHREADS--------\n");
 	/* rec_print_pid_info(2, 0); */
