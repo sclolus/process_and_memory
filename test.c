@@ -6,6 +6,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <assert.h>
+#include <string.h>
 
 
 /* #define __NR_get_pid_info 293 */
@@ -32,31 +33,60 @@ struct pid_info {
 	char			     cwd[PATH_MAX];
 };
 
-static void print_children_info(struct pid_info *info)
+static char tabs[128];
+
+static void print_children_info(struct pid_info *info, uint64_t depth)
 {
 	uint64_t    i = 0;
 
 	assert(info->syscall_status == SUCCESS);
 	assert(sizeof(pid_t) == 4);
+	memset(tabs, '\t', depth);
+	tabs[depth] = '\0';
 	while (i < info->child_array_size / sizeof(pid_t)) {
-		printf("Pid for child: %lu -> %u\n", i, info->child_array[i]);
+		printf("%sPid for child: %lu -> %u\n", tabs, i, info->child_array[i]);
 		i++;
 	}
 }
 
-static void print_pid_info(struct pid_info *info)
+static void get_process_name_by_pid(pid_t pid, char * const buf, const uint64_t size)
 {
-	printf("pid: %d\nstate:%ld\nstack_ptr: %p\nage: %lu, child_array: %p, no_children = %lu, parent_pid: %d\nroot_path: %s\ncwd: %s\n",
-		info->pid,
-		info->state,
-		info->stack,
-		info->age,
-		info->child_array,
-		info->child_array_size / sizeof(pid_t),
-		info->parent_pid,
-		info->root_path,
-		info->cwd);
-	print_children_info(info);
+	static char cmdline_path[4096];
+	int	    fd;
+	ssize_t	    ret;
+
+	snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%u/cmdline", pid);
+	if (-1 == (fd = open(cmdline_path, O_RDONLY))) {
+		printf("Failed to open %s\n", cmdline_path);
+		exit(EXIT_FAILURE);
+	}
+	ret = read(fd, buf, size);
+
+	if (ret == -1) {
+		printf("Failed to read from %s\n", cmdline_path);
+		exit(EXIT_FAILURE);
+	}
+	buf[ret] = '\0';
+}
+
+static void print_pid_info(struct pid_info *info, uint64_t depth)
+{
+	static char name[4096];
+
+	memset(tabs, '\t', depth);
+	tabs[depth] = '\0';
+	get_process_name_by_pid(info->pid, name, sizeof(name));
+	printf("%sProcess name: %s\n", tabs, name);
+	printf("%spid: %d\n%sstate:%ld\n%sstack_ptr: %p\n%sage: %lu, child_array: %p, no_children = %lu, parent_pid: %d\n%sroot_path: %s\n%scwd: %s\n",
+		tabs,		info->pid,
+		tabs,		info->state,
+		tabs,		info->stack,
+		tabs,		info->age,
+				info->child_array,
+				info->child_array_size / sizeof(pid_t),
+				info->parent_pid,
+		tabs,		info->root_path,
+		tabs,		info->cwd);
 }
 
 static int32_t test_function(void)
@@ -90,7 +120,7 @@ static int32_t	wrapper_get_pid_info(struct pid_info *info, pid_t pid) {
 		}
 		info->child_array_size = current_array_size * sizeof(pid_t);
 		current_array_size *= 2;
-		printf("Calling get_pid_info with child_array of size: %lu\n", info->child_array_size);
+		/* printf("Calling get_pid_info with child_array of size: %lu\n", info->child_array_size); */
 		if (-1 == syscall(__NR_get_pid_info, info, pid))
 		{
 			if (info->syscall_status == ERR_CHILD_ARRAY_TOO_SMALL) {
@@ -110,10 +140,33 @@ static int32_t	wrapper_get_pid_info(struct pid_info *info, pid_t pid) {
 	return (0);
 }
 
+static void rec_print_pid_info(pid_t pid, uint64_t depth)
+{
+	struct pid_info	info;
+	uint64_t	i;
+
+	if (0 != wrapper_get_pid_info(&info, pid))
+	{
+		printf("Failed to call get_pid_info");
+		exit(EXIT_FAILURE);
+	}
+	print_pid_info(&info, depth);
+
+	i = 0;
+	print_children_info(&info, depth);
+	while (i < info.child_array_size / sizeof(pid_t)) {
+		rec_print_pid_info(info.child_array[i], depth + 1);
+		i++;
+	}
+	free(info.child_array);
+	printf("\n");
+}
+
+
 
 int main(void)
 {
-	struct pid_info	info;
+	/* struct pid_info	info; */
 	uint32_t    i = 0;
 
 	while (i < 5) {
@@ -128,8 +181,11 @@ int main(void)
 	/* sleep(1); */
 	/* test_function() == 0 ? printf("Test_function was successfull\n") */
 	/* 	: printf("Test_function was successfull\n"); */
-	if (-1 == wrapper_get_pid_info(&info, 1))
-		exit(EXIT_FAILURE);
-	print_pid_info(&info);
+	/* if (-1 == wrapper_get_pid_info(&info, 1)) */
+	/* 	exit(EXIT_FAILURE); */
+	/* print_pid_info(&info); */
+	rec_print_pid_info(1, 0);
+	printf("-----KTHREADS--------\n");
+	rec_print_pid_info(2, 0);
 	return 0;
 }
