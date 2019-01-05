@@ -11,6 +11,8 @@
 #include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/dcache.h>
+#include <linux/sched/cputime.h>
+#include <linux/timekeeping.h>
 
 # define LOG "get_pid_info: "
 
@@ -93,14 +95,22 @@ SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 		goto err;
 	}
 	ret = 0;
- 	rcu_read_unlock();
-	task_lock(task);
 
+ 	rcu_read_unlock();
+	get_task_struct(task);
+	task_lock(task);
 	info->pid = task_tgid_vnr(task);
 	info->state = task->state;
 	info->stack = task->stack;
-	info->age = /* task->start_time */ task->cputime_expires.sum_exec_runtime;
-	info->parent_pid = task->real_parent->pid;
+	info->age = ktime_get_ns() - task->start_time;
+	printk(KERN_INFO LOG "age in seconds = %lu\n", info->age / NSEC_PER_SEC);
+	printk(KERN_INFO LOG "remaining age in ns = %lu\n", info->age % NSEC_PER_SEC);
+
+	// Need to reacquire rcu lock for dereferencing the __rcu protected real_parent member
+	rcu_read_lock();
+	info->parent_pid = task_tgid_vnr(rcu_dereference(task->real_parent));
+	rcu_read_unlock();
+
 	ret = get_user_path_from_struct_path(&task->fs->root, info->root_path, sizeof(info->root_path));
 	ret |= get_user_path_from_struct_path(&task->fs->pwd, info->cwd, sizeof(info->cwd));
 	required_child_array_size = klist_len(&task->children) * sizeof(pid_t);
@@ -138,9 +148,11 @@ SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 	kfree(info);
 	/* test_function(NULL); */
 	task_unlock(task); //should need this though...
+	put_task_struct(task);
 	return ret;
 err_tlock_held:
 	task_unlock(task);
+	put_task_struct(task);
 err:
 	return ret;
 }

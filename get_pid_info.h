@@ -4,7 +4,7 @@
 enum	get_pid_info_status {
 	SUCCESS,
 	ERR_CHILD_ARRAY_TOO_SMALL,
-	ERR_UNKNOWN,
+	ERR_UNKNOWN, //currently not used
 };
 
 struct pid_info {

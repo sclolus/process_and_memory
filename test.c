@@ -9,7 +9,6 @@
 #include <string.h>
 
 
-/* #define __NR_get_pid_info 293 */
 #define __NR_get_pid_info 335
 
 
@@ -17,7 +16,7 @@
 enum	get_pid_info_status {
 	SUCCESS,
 	ERR_CHILD_ARRAY_TOO_SMALL,
-	ERR_UNKNOWN,
+	ERR_UNKNOWN, //currently not used
 };
 
 struct pid_info {
@@ -73,9 +72,9 @@ static void print_pid_info(struct pid_info *info, uint64_t depth)
 {
 	static char name[4096];
 
+	get_process_name_by_pid(info->pid, name, sizeof(name));
 	memset(tabs, '\t', depth);
 	tabs[depth] = '\0';
-	get_process_name_by_pid(info->pid, name, sizeof(name));
 	printf("%sProcess name: %s\n", tabs, name);
 	printf("%spid: %d\n%sstate:%ld\n%sstack_ptr: %p\n%sage: %lu, child_array: %p, no_children = %lu, parent_pid: %d\n%sroot_path: %s\n%scwd: %s\n",
 		tabs,		info->pid,
@@ -162,13 +161,14 @@ static void rec_print_pid_info(pid_t pid, uint64_t depth)
 }
 
 
-#define FORK_NUMBER 128
+#define FORK_NUMBER 4
 
 int main(void)
 {
 	/* struct pid_info	info; */
 	uint32_t    i = 0;
 
+	sleep(1);
 	while (i < FORK_NUMBER) {
 		if (0 == fork()) {
 			assert(sleep(2) == 0);
@@ -184,8 +184,9 @@ int main(void)
 	/* if (-1 == wrapper_get_pid_info(&info, 1)) */
 	/* 	exit(EXIT_FAILURE); */
 	/* print_pid_info(&info); */
-	rec_print_pid_info(1, 0);
+	/* rec_print_pid_info(1, 0); */
+	rec_print_pid_info(getpid(), 0);
 	printf("-----KTHREADS--------\n");
-	rec_print_pid_info(2, 0);
+	/* rec_print_pid_info(2, 0); */
 	return 0;
 }
