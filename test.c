@@ -11,6 +11,24 @@
 
 #define __NR_get_pid_info 335
 
+static void  print_stack(void *kstack, uint64_t len)
+{
+	static char buffer[49];
+	uint64_t    i = 0;
+
+	while (i < len) {
+		uint64_t    u;
+		memset(buffer, ' ', 48);
+		u = 0;
+		while (u < 16 && u + i < len) {
+			sprintf(buffer + u * 3, "%02hhx ", *(char *)(kstack + i + u));
+			u++;
+		}
+		printf("%s\n", buffer);
+		i += 16;
+	}
+
+}
 
 /* Further describe the reason of error if the sys_get_pid_info fails */
 enum	get_pid_info_status {
@@ -87,6 +105,7 @@ static void print_pid_info(struct pid_info *info, uint64_t depth)
 		tabs,		info->root_path,
 		tabs,		info->cwd);
 	printf("first word of kstack: %lx\n", *(long*)info->stack);
+	print_stack(info->stack, getpagesize());
 }
 
 static int32_t test_function(void)

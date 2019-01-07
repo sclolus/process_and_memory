@@ -21,6 +21,25 @@
 
 # define LOG "get_pid_info: "
 
+static void debug_print_kernel_stack(void *kstack, uint64_t len)
+{
+	static char buffer[49];
+	uint64_t    i = 0;
+
+	while (i < len) {
+		uint64_t    u;
+
+		memset(buffer, ' ', 48);
+		u = 0;
+		while (u < 16 && u + i < len) {
+			sprintf(buffer + u * 3, "%02hhx ", *(char *)(kstack + i + u));
+			u++;
+		}
+		printk(KERN_INFO LOG "%s\n", buffer);
+		i += 16;
+	}
+}
+
 static int kernel_stack_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct task_struct *task = file->private_data;
@@ -130,6 +149,7 @@ SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 
 	printk(KERN_INFO LOG "task->stack ptr: %px, current sp: %px\n", info->stack, &info);
 
+
 	/* struct page *kstack = virt_to_page((unsigned long)info->stack); */
 	/* struct vm_area_struct *kstack_vma = find_vma(&init_mm, (unsigned long)info->stack); */
 
@@ -142,6 +162,7 @@ SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 		goto err_tlock_held;
 	}
 	printk(KERN_INFO LOG "First long word of kernel stack pid: %d -> %lx\n", info->pid, *(long *)info->stack);
+	debug_print_kernel_stack(info->stack, 256);
 	info->stack = vm_mmap(stack_file, 0, THREAD_SIZE * 2, PROT_READ, MAP_PRIVATE, 0);
 	if (IS_ERR(info->stack)) {
 		printk(KERN_WARNING LOG "Failed to vm_mmap kernel stack\n");
