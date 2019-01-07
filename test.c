@@ -86,6 +86,7 @@ static void print_pid_info(struct pid_info *info, uint64_t depth)
 				info->parent_pid,
 		tabs,		info->root_path,
 		tabs,		info->cwd);
+	printf("first word of kstack: %lx\n", *(long*)info->stack);
 }
 
 static int32_t test_function(void)
