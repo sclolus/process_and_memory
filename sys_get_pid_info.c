@@ -129,6 +129,15 @@ err:
 	return ret;
 }
 
+static inline long  normalize_process_state(long state)
+{
+	if (state > 0)
+		return (1);
+	else if (state < 0)
+		return (-1);
+	return (state);
+}
+
 SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 {
 	struct pid_info	    *info;
@@ -166,7 +175,8 @@ SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 		goto err_tlock_held_need_kfree;
 	}
 
-	info->state = task->state;
+	info->state = normalize_process_state(task->state);
+
 	info->stack = task->stack;
 	ret = map_kernel_stack(info, task);
 	if (0 != ret) {
