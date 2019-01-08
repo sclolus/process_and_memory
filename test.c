@@ -204,6 +204,9 @@ int main(void)
 	}
 
 	(void)test_function;
+	struct pid_info info;
+	assert(-1 == wrapper_get_pid_info(&info, -1));
+	assert(-1 == wrapper_get_pid_info(&info, -42));
 	/* sleep(1); */
 	/* test_function() == 0 ? printf("Test_function was successfull\n") */
 	/* 	: printf("Test_function was successfull\n"); */
@@ -214,6 +217,6 @@ int main(void)
 	printf("User space stack addr: %p\n", &i);
 	rec_print_pid_info(1, 0);
 	printf("-----KTHREADS--------\n");
-	/* rec_print_pid_info(2, 0); */
+	rec_print_pid_info(2, 0);
 	return 0;
 }

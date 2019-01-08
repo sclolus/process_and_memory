@@ -42,7 +42,7 @@ static void debug_print_kernel_stack(void *kstack, uint64_t len)
 	}
 }
 
-static int kernel_stack_mmap(struct file *file, struct vm_area_struct *vma)
+static int kernel_stack_mmap(struct file *file, struct vm_area_struct *vma) /* remaps the kernel stack if it is already mapped, you saw nothing. */
 {
 	struct task_struct *task = file->private_data;
 	struct page	    *kstack = vmalloc_to_page(task->stack);
@@ -74,20 +74,6 @@ static int32_t  get_user_path_from_struct_path(struct path *path, char *buffer, 
 	return 0;
 }
 
-
-static void	printk_file_path(struct file *file, char *prefix)
-{
-	static char buffer[PAGE_SIZE];
-	char	    *ptr;
-
-	ptr = dentry_path_raw(file->f_path.dentry, buffer, sizeof(buffer));
-	if (IS_ERR(ptr)) {
-		printk(KERN_INFO LOG "Was unable to print some file's path\n");
-		return ;
-	}
-
-	printk(KERN_INFO LOG "%s%s", prefix, ptr);
-}
 
 uint64_t    klist_len(const struct list_head *list)
 {
@@ -138,16 +124,48 @@ static inline long  normalize_process_state(long state)
 	return (state);
 }
 
+static inline int64_t	fill_child_array(struct pid_info *info, struct task_struct *task)
+{
+	uint64_t	    required_child_array_size;
+	int64_t		    ret;
+
+	required_child_array_size = klist_len(&task->children) * sizeof(pid_t);
+	info->syscall_status = SUCCESS;
+	ret = 0;
+	if (required_child_array_size > info->child_array_size) {
+		info->child_array_size = required_child_array_size;
+		info->syscall_status = ERR_CHILD_ARRAY_TOO_SMALL;
+		ret = -ENOMEM;
+		printk(KERN_INFO LOG "child_array was too small\n");
+		goto out;
+	} else {
+		struct task_struct *pos = NULL;
+		uint64_t	    i = 0;
+		pid_t		    vpid;
+
+		list_for_each_entry(pos, &task->children, sibling) {
+			vpid = task_tgid_vnr(pos);
+			if (0 != copy_to_user(&info->child_array[i], &vpid, sizeof(pid_t))) { // check return value and maybe make it a single call
+				ret = -EPERM; //better error code ?
+				goto out;
+			}
+			i++;
+		}
+		info->child_array_size = required_child_array_size;
+	}
+out:
+	return ret;
+}
+
 SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 {
 	struct pid_info	    *info;
 	struct task_struct  *task;
 	int64_t		    ret;
-	uint64_t	    required_child_array_size;
 
 	printk(KERN_INFO LOG "get_pid_info() was called by pid: %d\n", current->pid);
 
-	if (NULL == (info = kmalloc(sizeof(struct pid_info), GFP_KERNEL))) {
+	if (NULL == (info = kmalloc(sizeof(struct pid_info), GFP_KERNEL)) || to == NULL) {
 		ret = -ENOMEM;
 		goto err;
 	}
@@ -195,39 +213,17 @@ SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 
 	ret = get_user_path_from_struct_path(&task->fs->root, info->root_path, sizeof(info->root_path));
 	ret |= get_user_path_from_struct_path(&task->fs->pwd, info->cwd, sizeof(info->cwd));
-	required_child_array_size = klist_len(&task->children) * sizeof(pid_t);
 	if (ret != 0) {
 		ret = -EPERM;
 		goto err_tlock_held_need_kfree;
 	}
-
-	info->syscall_status = SUCCESS;
-	if (required_child_array_size > info->child_array_size) {
-		info->child_array_size = required_child_array_size;
-		info->syscall_status = ERR_CHILD_ARRAY_TOO_SMALL;
-		ret = -ENOMEM;
-		printk(KERN_INFO LOG "child_array was too small\n");
-	} else {
-		struct task_struct *pos = NULL;
-		uint64_t	    i = 0;
-		pid_t		    vpid;
-
-		list_for_each_entry(pos, &task->children, sibling) {
-			vpid = task_tgid_vnr(pos);
-			if (0 != copy_to_user(&info->child_array[i], &vpid, sizeof(pid_t))) { // check return value and maybe make it a single call
-				ret = -EPERM; //better error code ?
-				goto err_tlock_held_need_kfree;
-			}
-			i++;
-		}
-		info->child_array_size = required_child_array_size;
-	}
-
+	ret = fill_child_array(info, task);
 	if (0 != copy_to_user(to, info, sizeof(struct pid_info))) {
-		kfree(info);
 		ret = -EPERM;
-		goto err_tlock_held;
+		goto err_tlock_held_need_kfree;
 	}
+	if (ret != 0) /* if fill_child_array failed we need to copy_to_user anyway to propagate the error code */
+		goto err_tlock_held_need_kfree;
 
 	kfree(info);
 	task_unlock(task);
