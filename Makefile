@@ -6,7 +6,7 @@ module-obj = $(obj-m:.o=.ko)
 KERNELRELEASE=$(shell uname -r)
 KDIR=/lib/modules/$(shell uname -r)/build
 EXTRAFLAGS= -Wall -Wextra -Wextra -Werror -v -g -DDEBUG
-FLAGS= $(EXTRAFLAGS)
+FLAGS= $(EXTRAFLAGS) -g3 -fsanitize=address
 ccflags-y= $(EXTRAFLAGS)
 TEST_DIR= "testing"
 TEST_BIN= "test_bin"

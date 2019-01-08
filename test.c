@@ -16,6 +16,8 @@ static void  print_stack(void *kstack, uint64_t len)
 	static char buffer[49];
 	uint64_t    i = 0;
 
+	if (kstack == NULL)
+		return ;
 	while (i < len) {
 		uint64_t    u;
 		memset(buffer, ' ', 48);
@@ -66,7 +68,7 @@ static void print_children_info(struct pid_info *info, uint64_t depth)
 	}
 }
 
-static void get_process_name_by_pid(pid_t pid, char * const buf, const uint64_t size)
+static int get_process_name_by_pid(pid_t pid, char * const buf, const uint64_t size)
 {
 	static char cmdline_path[4096];
 	int	    fd;
@@ -75,22 +77,25 @@ static void get_process_name_by_pid(pid_t pid, char * const buf, const uint64_t 
 	snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%u/comm", pid);
 	if (-1 == (fd = open(cmdline_path, O_RDONLY))) {
 		printf("Failed to open %s\n", cmdline_path);
-		exit(EXIT_FAILURE);
+		return (-1);
 	}
 	ret = read(fd, buf, size);
 
 	if (ret == -1) {
 		printf("Failed to read from %s\n", cmdline_path);
-		exit(EXIT_FAILURE);
+		return (-1);
 	}
 	buf[ret] = '\0';
+	return (0);
 }
 
 static void print_pid_info(struct pid_info *info, uint64_t depth)
 {
 	static char name[4096];
 
-	get_process_name_by_pid(info->pid, name, sizeof(name));
+	if (0 != get_process_name_by_pid(info->pid, name, sizeof(name))) {
+		strcpy(name, "Unable to retrieve name");
+	}
 	memset(tabs, '\t', depth);
 	tabs[depth] = '\0';
 	printf("%sProcess name: %s\n", tabs, name);
@@ -104,8 +109,9 @@ static void print_pid_info(struct pid_info *info, uint64_t depth)
 				info->parent_pid,
 		tabs,		info->root_path,
 		tabs,		info->cwd);
-	printf("first word of kstack: %lx\n", *(long*)info->stack);
-	print_stack(info->stack, getpagesize());
+	if (info->stack != NULL)
+		printf("first word of kstack: %lx\n", *(long*)info->stack);
+	print_stack(info->stack, 128);
 }
 
 static int32_t test_function(void)
@@ -206,7 +212,7 @@ int main(void)
 	/* print_pid_info(&info); */
 	/* rec_print_pid_info(1, 0); */
 	printf("User space stack addr: %p\n", &i);
-	rec_print_pid_info(getpid(), 0);
+	rec_print_pid_info(1, 0);
 	printf("-----KTHREADS--------\n");
 	/* rec_print_pid_info(2, 0); */
 	return 0;

@@ -26,6 +26,8 @@ static void debug_print_kernel_stack(void *kstack, uint64_t len)
 	static char buffer[49];
 	uint64_t    i = 0;
 
+	if (IS_ERR_OR_NULL(kstack))
+		return ;
 	while (i < len) {
 		uint64_t    u;
 
@@ -45,7 +47,7 @@ static int kernel_stack_mmap(struct file *file, struct vm_area_struct *vma)
 	struct task_struct *task = file->private_data;
 	struct page	    *kstack = vmalloc_to_page(task->stack);
 
-	if (kstack == NULL) {
+	if (IS_ERR_OR_NULL(kstack)) {
 		printk(KERN_WARNING LOG "Failed to get kernel stack page struct\n");
 		return -EINVAL;
 	}
@@ -87,23 +89,8 @@ static void	printk_file_path(struct file *file, char *prefix)
 	printk(KERN_INFO LOG "%s%s", prefix, ptr);
 }
 
-static int32_t	test_function(void *data)
+uint64_t    klist_len(const struct list_head *list)
 {
-	struct fdtable	    *fdtable = &current->files->fdtab;
-	struct file	    *tmp_file;
-	uint64_t	    i = 0;
-
-	while (fdtable->fd[i] != NULL)
-	{
-		tmp_file = get_file(fdtable->fd[i]);
-		printk_file_path(tmp_file, "Opened fd: ");
-		fput_atomic(tmp_file);
-		i++;
-	}
-	return (0);
-}
-
-uint64_t    klist_len(const struct list_head *list) {
 	uint64_t	     __len = 0;
 	struct list_head    *pos = NULL;
 
@@ -111,6 +98,35 @@ uint64_t    klist_len(const struct list_head *list) {
 		__len++;
 	}
 	return __len;
+}
+
+static int64_t  map_kernel_stack(struct pid_info *info, struct task_struct *task)
+{
+	int64_t		ret;
+	struct file	*stack_file;
+
+	stack_file = anon_inode_getfile("get_pid_info_stack", &get_pid_stack_fops, task, O_RDONLY);
+	printk(KERN_INFO LOG "task->stack ptr: %px, current sp: %px\n", info->stack, &info);
+	if (IS_ERR_OR_NULL(stack_file)) {
+		printk(KERN_WARNING LOG "Failed to get anonymous inode\n");
+		ret = -EIO; // change this
+		goto err;
+	}
+	if (!IS_ERR_OR_NULL(info->stack)) {
+		printk(KERN_INFO LOG "Kernel stack of pid: %d\n", info->pid);
+		/* debug_print_kernel_stack(info->stack, THREAD_SIZE); */
+	}
+
+	info->stack = vm_mmap(stack_file, 0, THREAD_SIZE * 2, PROT_READ, MAP_PRIVATE, 0);
+	if (IS_ERR(info->stack)) {
+		printk(KERN_WARNING LOG "Failed to vm_mmap kernel stack\n");
+		ret = -EPERM;
+		goto err;
+	}
+	printk(KERN_WARNING LOG "Kernel stack of process: %d has been mapped to %px\n", info->pid, info->stack);
+	return 0;
+err:
+	return ret;
 }
 
 SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
@@ -144,44 +160,23 @@ SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 	get_task_struct(task);
 	task_lock(task);
 	info->pid = task_tgid_vnr(task);
+	if (info->pid == 0 && pid != 0) {
+		printk(KERN_INFO LOG "Task corresponding to pid: %d is already dead\n", pid);
+		ret = -ESRCH;
+		goto err_tlock_held_need_kfree;
+	}
+
 	info->state = task->state;
 	info->stack = task->stack;
-
-	printk(KERN_INFO LOG "task->stack ptr: %px, current sp: %px\n", info->stack, &info);
-
-
-	/* struct page *kstack = virt_to_page((unsigned long)info->stack); */
-	/* struct vm_area_struct *kstack_vma = find_vma(&init_mm, (unsigned long)info->stack); */
-
-	/* printk(KERN_INFO LOG "return of vm_insert_page: %d\n", vm_insert_page(current->mm->mmap, (unsigned long)info->stack, kstack)); */
-	struct file *stack_file = anon_inode_getfile("get_pid_info_stack", &get_pid_stack_fops, task, O_RDONLY);
-
-	if (IS_ERR(stack_file)) {
-		printk(KERN_WARNING LOG "Failed to get anonymous inode\n");
-		ret = -EIO; // change this
-		goto err_tlock_held;
+	ret = map_kernel_stack(info, task);
+	if (0 != ret) {
+		printk(KERN_INFO LOG "Failed to map kernel_stack of process: %d into userspace\n", info->pid);
+		goto err_tlock_held_need_kfree;
 	}
-	printk(KERN_INFO LOG "First long word of kernel stack pid: %d -> %lx\n", info->pid, *(long *)info->stack);
-	debug_print_kernel_stack(info->stack, 256);
-	info->stack = vm_mmap(stack_file, 0, THREAD_SIZE * 2, PROT_READ, MAP_PRIVATE, 0);
-	if (IS_ERR(info->stack)) {
-		printk(KERN_WARNING LOG "Failed to vm_mmap kernel stack\n");
-		ret = -EPERM;
-		goto err_tlock_held;
-	}
-	printk(KERN_WARNING LOG "Kernel stack of process: %d has been mapped to %px\n", info->pid, info->stack);
-
-
-	/* int ret_remap = remap_pfn_range(current->mm->mmap, info->stack, __pa(info->stack), THREAD_SIZE * 2, PAGE_READONLY); */
-	/* printk(KERN_INFO LOG "return of remap_pfn_range: %d\n", ret_remap); */
-
-	/* printk(KERN_INFO LOG "page addr: %px, vma addr: %px\n", kstack, kstack_vma); */
-
 
 
 	info->age = ktime_get_ns() - task->start_time;
-	printk(KERN_INFO LOG "age in seconds = %llu\n", info->age / NSEC_PER_SEC);
-	printk(KERN_INFO LOG "remaining age in ns = %llu\n", info->age % NSEC_PER_SEC);
+	printk(KERN_INFO LOG "age in seconds = %llu, remaining age in ns = %llu\n", info->age / NSEC_PER_SEC, info->age % NSEC_PER_SEC);
 
 	// Need to reacquire rcu lock for dereferencing the __rcu protected real_parent member
 	rcu_read_lock();
@@ -192,9 +187,8 @@ SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 	ret |= get_user_path_from_struct_path(&task->fs->pwd, info->cwd, sizeof(info->cwd));
 	required_child_array_size = klist_len(&task->children) * sizeof(pid_t);
 	if (ret != 0) {
-		kfree(info);
 		ret = -EPERM;
-		goto err_tlock_held;
+		goto err_tlock_held_need_kfree;
 	}
 
 	info->syscall_status = SUCCESS;
@@ -210,7 +204,10 @@ SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 
 		list_for_each_entry(pos, &task->children, sibling) {
 			vpid = task_tgid_vnr(pos);
-			copy_to_user(&info->child_array[i], &vpid, sizeof(pid_t)); // check return value and maybe make it a single call
+			if (0 != copy_to_user(&info->child_array[i], &vpid, sizeof(pid_t))) { // check return value and maybe make it a single call
+				ret = -EPERM; //better error code ?
+				goto err_tlock_held_need_kfree;
+			}
 			i++;
 		}
 		info->child_array_size = required_child_array_size;
@@ -223,10 +220,11 @@ SYSCALL_DEFINE2(get_pid_info, struct pid_info __user *, to, int, pid)
 	}
 
 	kfree(info);
-	/* test_function(NULL); */
-	task_unlock(task); //should need this though...
+	task_unlock(task);
 	put_task_struct(task);
 	return ret;
+err_tlock_held_need_kfree:
+	kfree(info);
 err_tlock_held:
 	task_unlock(task);
 	put_task_struct(task);

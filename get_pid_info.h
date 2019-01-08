@@ -20,6 +20,6 @@ struct pid_info {
 	char			     cwd[PATH_MAX];
 };
 
-long	sys_get_pid_info(struct pid_info __user *ret, int pid);
+long	sys_get_pid_info(struct pid_info __user *ret, int pid); // int or long return ?
 
 #endif
